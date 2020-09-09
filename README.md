@@ -107,3 +107,5 @@ The example `main.py` code is as follows:
     # Run boot()
     boot()
 ```
+
+For a live working example see [github.com/bensherlock/micropython-ota-updater-example-application](https://github.com/bensherlock/micropython-ota-updater-example-application).
