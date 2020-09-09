@@ -60,8 +60,22 @@ class OTAUpdater:
             sta_if.active(True)
             sta_if.connect(ssid, password)
             while not sta_if.isconnected():
-                pass
+                # Check the status
+                status = sta_if.status()
+                # Constants aren't implemented for PYBD as of MicroPython v1.13.
+                # From: https://github.com/micropython/micropython/issues/4682
+                # 'So "is-connecting" is defined as s.status() in (1, 2) and "is-connected" is defined as s.status() == 3.'
+                #
+                if status <= 0:
+                    # Error States?
+                    return False
+                #if ((status == network.WLAN.STAT_IDLE) or (status == network.WLAN.STAT_WRONG_PASSWORD)
+                #        or (status == network.WLAN.STAT_NO_AP_FOUND) or (status == network.WLAN.STAT_CONNECT_FAIL)):
+                    # Problems so return
+                #    return False
+
         print('network config:', sta_if.ifconfig())
+        return True
 
     def download_updates_if_available(self):
         """Downloads available updates and leaves them in the 'next' directory alongside the 'main' directory."""
@@ -77,7 +91,7 @@ class OTAUpdater:
 
         if (not current_version) or (latest_version > current_version):
             print('Updating...')
-            if not os.path.exists(self._module):
+            if not self.path_exists(self._module):
                 os.mkdir(self._module)
             os.mkdir(self.get_module_and_path('next'))
             self.download_all_files(self._github_repo + '/contents/' + self._main_dir, latest_version)
@@ -90,11 +104,12 @@ class OTAUpdater:
 
     def apply_pending_updates_if_available(self):
         """Checks for 'next' directory and version number and overwrites the current 'main' directory."""
-        if os.path.exists(self._module) and 'next' in os.listdir(self._module):
+        if self.path_exists(self._module) and 'next' in os.listdir(self._module):
             if '.version' in os.listdir(self.get_module_and_path('next')):
                 pending_update_version = self.get_version(self.get_module_and_path('next'))
                 print('Pending update found: ', pending_update_version)
-                self.rmtree(self.get_module_and_path(self._main_dir))  # Remove the 'main' directory and contents.
+                if self.path_exists(self.get_module_and_path(self._main_dir)):
+                    self.rmtree(self.get_module_and_path(self._main_dir))  # Remove the 'main' directory and contents.
                 os.rename(self.get_module_and_path('next'), self.get_module_and_path(self._main_dir))  # Move the 'next' to 'main'
                 print('Update applied (', pending_update_version, '), ready to rock and roll')
             else:
@@ -116,7 +131,7 @@ class OTAUpdater:
     def get_version(self, directory, version_file_name='.version'):
         """Get the current installed version.
         Returns the version or None if no version file exists."""
-        if os.path.exists(directory) and (version_file_name in os.listdir(directory)):
+        if self.path_exists(directory) and (version_file_name in os.listdir(directory)):
             f = open(directory + '/' + version_file_name)
             version = f.read()
             f.close()
@@ -164,6 +179,13 @@ class OTAUpdater:
         """Get the combined path of module and the provided path appended."""
         return self._module + '/' + path if self._module else path
 
+    def path_exists(self, path):
+        """Test if path exists. Returns True if found."""
+        try:
+            os.stat(path)
+        except OSError:
+            return False
+        return True
 
 class Response:
     """HTTP Response."""

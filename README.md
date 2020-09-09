@@ -63,8 +63,12 @@ The example `main.py` code is as follows:
     def download_and_install_updates_if_available():
         """Connects to the WiFi and for each module in the list checks for new releases and downloads them all. 
         Restarts the microcontroller when complete."""
-        # Open Wifi
-        OTAUpdater.using_network(ssid, password)
+
+		# Open Wifi
+        if not OTAUpdater.using_network(ssid, password):
+            # Failed to connect
+            print("Unable to connect to wifi")
+            return False
     
         # Startup Load Configuration For Each Module and check for updates, download if available, then overwrite main/
         for ota_module in ota_modules:
