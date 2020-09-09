@@ -1,22 +1,58 @@
-# 1000 x dank aan Evelien die mijn in deze tijden gesteund heeft
-# ohja, en er is ook nog tante suker (Jana Dej.) die graag kinderen wilt maar het zelf nog niet beseft
+#! /usr/bin/env python
+#
+# MicroPython OTA Updater
+#
+# This file is part of micropython-ota-updater.
+# https://github.com/bensherlock/micropython-ota-updater
+#
+# This file was forked and modified from the work by rdehuyss at:
+# https://github.com/rdehuyss/micropython-ota-updater
+# Copyright (c) 2018 rdehuyss https://github.com/rdehuyss
+#
+# MIT License
+# Copyright (c) 2020 Benjamin Sherlock <benjamin.sherlock@ncl.ac.uk>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+"""MicroPython OTA Updater."""
 
 import usocket
 import os
 import gc
-import machine
 
 
 class OTAUpdater:
+    """OTA Updater for a given module."""
 
     def __init__(self, github_repo, module='', main_dir='main'):
-        self.http_client = HttpClient()
-        self.github_repo = github_repo.rstrip('/').replace('https://github.com', 'https://api.github.com/repos')
-        self.main_dir = main_dir
-        self.module = module.rstrip('/')
+        """Initialise with url to the github repo, the module, and the main directory within the module."""
+        self._http_client = HttpClient()
+        self._github_repo = github_repo.rstrip('/').replace('https://github.com', 'https://api.github.com/repos')
+        self._main_dir = main_dir
+        self._module = module.rstrip('/')
+
+    def __call__(self):
+        return self
 
     @staticmethod
     def using_network(ssid, password):
+        """Connects to the wifi with the given ssid and password."""
         import network
         sta_if = network.WLAN(network.STA_IF)
         if not sta_if.isconnected():
@@ -27,125 +63,110 @@ class OTAUpdater:
                 pass
         print('network config:', sta_if.ifconfig())
 
-    def check_for_update_to_install_during_next_reboot(self):
-        current_version = self.get_version(self.modulepath(self.main_dir))
-        latest_version = self.get_latest_version()
-
-        print('Checking version... ')
-        print('\tCurrent version: ', current_version)
-        print('\tLatest version: ', latest_version)
-        if latest_version > current_version:
-            print('New version available, will download and install on next reboot')
-            os.mkdir(self.modulepath('next'))
-            with open(self.modulepath('next/.version_on_reboot'), 'w') as versionfile:
-                versionfile.write(latest_version)
-                versionfile.close()
-
-    def download_and_install_update_if_available(self, ssid, password):
-        if 'next' in os.listdir(self.module):
-            if '.version_on_reboot' in os.listdir(self.modulepath('next')):
-                latest_version = self.get_version(self.modulepath('next'), '.version_on_reboot')
-                print('New update found: ', latest_version)
-                self._download_and_install_update(latest_version, ssid, password)
-        else:
-            print('No new updates found...')
-
-    def _download_and_install_update(self, latest_version, ssid, password):
-        OTAUpdater.using_network(ssid, password)
-
-        self.download_all_files(self.github_repo + '/contents/' + self.main_dir, latest_version)
-        self.rmtree(self.modulepath(self.main_dir))
-        os.rename(self.modulepath('next/.version_on_reboot'), self.modulepath('next/.version'))
-        os.rename(self.modulepath('next'), self.modulepath(self.main_dir))
-        print('Update installed (', latest_version, '), will reboot now')
-        machine.reset()
-
-    def apply_pending_updates_if_available(self):
-        if 'next' in os.listdir(self.module):
-            if '.version' in os.listdir(self.modulepath('next')):
-                pending_update_version = self.get_version(self.modulepath('next'))
-                print('Pending update found: ', pending_update_version)
-                self.rmtree(self.modulepath(self.main_dir))
-                os.rename(self.modulepath('next'), self.modulepath(self.main_dir))
-                print('Update applied (', pending_update_version, '), ready to rock and roll')
-            else:
-                print('Corrupt pending update found, discarding...')
-                self.rmtree(self.modulepath('next'))
-        else:
-            print('No pending update found')
-
     def download_updates_if_available(self):
-        current_version = self.get_version(self.modulepath(self.main_dir))
+        """Downloads available updates and leaves them in the 'next' directory alongside the 'main' directory."""
+        current_version = self.get_version(self.get_module_and_path(self._main_dir))
         latest_version = self.get_latest_version()
 
         print('Checking version... ')
         print('\tCurrent version: ', current_version)
         print('\tLatest version: ', latest_version)
-        if latest_version > current_version:
+
+        if not latest_version:
+            return False
+
+        if (not current_version) or (latest_version > current_version):
             print('Updating...')
-            os.mkdir(self.modulepath('next'))
-            self.download_all_files(self.github_repo + '/contents/' + self.main_dir, latest_version)
-            with open(self.modulepath('next/.version'), 'w') as versionfile:
+            if not os.path.exists(self._module):
+                os.mkdir(self._module)
+            os.mkdir(self.get_module_and_path('next'))
+            self.download_all_files(self._github_repo + '/contents/' + self._main_dir, latest_version)
+            with open(self.get_module_and_path('next/.version'), 'w') as versionfile:
                 versionfile.write(latest_version)
                 versionfile.close()
 
             return True
         return False
 
-    def rmtree(self, directory):
-        for entry in os.ilistdir(directory):
-            is_dir = entry[1] == 0x4000
-            if is_dir:
-                self.rmtree(directory + '/' + entry[0])
-
+    def apply_pending_updates_if_available(self):
+        """Checks for 'next' directory and version number and overwrites the current 'main' directory."""
+        if os.path.exists(self._module) and 'next' in os.listdir(self._module):
+            if '.version' in os.listdir(self.get_module_and_path('next')):
+                pending_update_version = self.get_version(self.get_module_and_path('next'))
+                print('Pending update found: ', pending_update_version)
+                self.rmtree(self.get_module_and_path(self._main_dir))  # Remove the 'main' directory and contents.
+                os.rename(self.get_module_and_path('next'), self.get_module_and_path(self._main_dir))  # Move the 'next' to 'main'
+                print('Update applied (', pending_update_version, '), ready to rock and roll')
             else:
-                os.remove(directory + '/' + entry[0])
-        os.rmdir(directory)
+                print('Corrupt pending update found, discarding...')
+                self.rmtree(self.get_module_and_path('next'))
+        else:
+            print('No pending update found')
+
+    def rmtree(self, directory):
+        """Remove the directory tree."""
+        for entry in os.ilistdir(directory):
+            is_dir = (entry[1] == 0x4000)  # 0x4000 for directories and 0x8000 for regular files
+            if is_dir:
+                self.rmtree(directory + '/' + entry[0])  # Recurse into subdirectory
+            else:
+                os.remove(directory + '/' + entry[0])  # Remove this object
+        os.rmdir(directory)  # Remove the now empty directory.
 
     def get_version(self, directory, version_file_name='.version'):
-        if version_file_name in os.listdir(directory):
+        """Get the current installed version.
+        Returns the version or None if no version file exists."""
+        if os.path.exists(directory) and (version_file_name in os.listdir(directory)):
             f = open(directory + '/' + version_file_name)
             version = f.read()
             f.close()
             return version
-        return '0.0'
+        return None
 
     def get_latest_version(self):
-        latest_release = self.http_client.get(self.github_repo + '/releases/latest')
+        """Get the latest release version information from the github repo url.
+        Returns the version or None if no releases exist."""
+        latest_release = self._http_client.get(self._github_repo + '/releases/latest')
+        if not 'tag_name' in latest_release.json():
+            return None
         version = latest_release.json()['tag_name']
         latest_release.close()
         return version
 
     def download_all_files(self, root_url, version):
-        file_list = self.http_client.get(root_url + '?ref=refs/tags/' + version)
+        """Download all files and directories from the version at the repo url below the 'main' directory."""
+        file_list = self._http_client.get(root_url + '?ref=refs/tags/' + version)
         for file in file_list.json():
             if file['type'] == 'file':
                 download_url = file['download_url']
-                download_path = self.modulepath('next/' + file['path'].replace(self.main_dir + '/', ''))
+                download_path = self.get_module_and_path('next/' + file['path'].replace(self._main_dir + '/', ''))
                 self.download_file(download_url.replace('refs/tags/', ''), download_path)
             elif file['type'] == 'dir':
-                path = self.modulepath('next/' + file['path'].replace(self.main_dir + '/', ''))
+                path = self.get_module_and_path('next/' + file['path'].replace(self._main_dir + '/', ''))
                 os.mkdir(path)
-                self.download_all_files(root_url + '/' + file['name'], version)
+                self.download_all_files(root_url + '/' + file['name'], version)  # Recurse into the subdirectory.
 
         file_list.close()
 
     def download_file(self, url, path):
+        """Download file from the url to the given path."""
         print('\tDownloading: ', path)
         with open(path, 'w') as outfile:
             try:
-                response = self.http_client.get(url)
+                response = self._http_client.get(url)
                 outfile.write(response.text)
             finally:
                 response.close()
                 outfile.close()
                 gc.collect()
 
-    def modulepath(self, path):
-        return self.module + '/' + path if self.module else path
+    def get_module_and_path(self, path):
+        """Get the combined path of module and the provided path appended."""
+        return self._module + '/' + path if self._module else path
 
 
 class Response:
+    """HTTP Response."""
 
     def __init__(self, f):
         self.raw = f
@@ -178,6 +199,7 @@ class Response:
 
 
 class HttpClient:
+    """HTTP Client."""
 
     def request(self, method, url, data=None, json=None, headers={}, stream=None):
         try:
