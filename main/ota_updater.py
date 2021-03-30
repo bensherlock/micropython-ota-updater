@@ -246,6 +246,8 @@ class HttpClient:
 
         s = usocket.socket(ai[0], ai[1], ai[2])
         try:
+            # Set Timeout (in seconds) to make it non-blocking.
+            s.settimeout(5)
             s.connect(ai[-1])
             if proto == 'https:':
                 s = ussl.wrap_socket(s, server_hostname=host)
