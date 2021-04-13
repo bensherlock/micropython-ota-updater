@@ -51,13 +51,14 @@ class OTAUpdater:
         return self
 
     @staticmethod
-    def using_network(ssid, password):
-        """Connects to the wifi with the given ssid and password."""
+    def using_network(ssid, password, antenna=0):
+        """Connects to the wifi with the given ssid and password. antenna can be 0=chip, 1=external."""
         import network
         sta_if = network.WLAN(network.STA_IF)
         if not sta_if.isconnected():
             print('connecting to network...')
             sta_if.active(True)
+            sta_if.config(antenna=antenna)  # select antenna, 0=chip, 1=external
             sta_if.connect(ssid, password)
             while not sta_if.isconnected():
                 # Check the status
@@ -93,8 +94,16 @@ class OTAUpdater:
             print('Updating...')
             if not self.path_exists(self._module):
                 os.mkdir(self._module)
+
+            # Check if there's a botched download already. If next directory already exists remove it and tree.
+            if self.path_exists(self.get_module_and_path('next')):
+                self.rmtree(self.get_module_and_path('next'))  # Remove the 'next' directory and contents.
+
+            # Create the next directory and download the source files.
             os.mkdir(self.get_module_and_path('next'))
             self.download_all_files(self._github_repo + '/contents/' + self._main_dir, latest_version)
+
+            # Last step is to write the .version file only if we have completed the download
             with open(self.get_module_and_path('next/.version'), 'w') as versionfile:
                 versionfile.write(latest_version)
                 versionfile.close()
@@ -128,8 +137,14 @@ class OTAUpdater:
                 os.remove(directory + '/' + entry[0])  # Remove this object
         os.rmdir(directory)  # Remove the now empty directory.
 
-    def get_version(self, directory, version_file_name='.version'):
+    def get_current_version(self):
         """Get the current installed version.
+        Returns the version or None if no version file exists."""
+        current_version = self.get_version(self.get_module_and_path(self._main_dir))
+        return current_version
+
+    def get_version(self, directory, version_file_name='.version'):
+        """Get the version from the specified directory.
         Returns the version or None if no version file exists."""
         if self.path_exists(directory) and (version_file_name in os.listdir(directory)):
             f = open(directory + '/' + version_file_name)
