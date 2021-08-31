@@ -35,17 +35,19 @@
 import usocket
 import os
 import gc
-
+import utime
 
 class OTAUpdater:
     """OTA Updater for a given module."""
 
-    def __init__(self, github_repo, module='', main_dir='main'):
-        """Initialise with url to the github repo, the module, and the main directory within the module."""
+    def __init__(self, github_repo, module='', main_dir='main', github_pat=None):
+        """Initialise with url to the github repo, the module, and the main directory within the module
+        plus optional github personal access token."""
         self._http_client = HttpClient()
         self._github_repo = github_repo.rstrip('/').replace('https://github.com', 'https://api.github.com/repos')
         self._main_dir = main_dir
         self._module = module.rstrip('/')
+        self._github_pat = github_pat
 
     def __call__(self):
         return self
@@ -57,11 +59,27 @@ class OTAUpdater:
         sta_if = network.WLAN(network.STA_IF)
         if not sta_if.isconnected():
             print('connecting to network...')
+            print('SSID: ' + ssid + ' password:' + password)
+
+            #print('setting active')
             sta_if.active(True)
+            #utime.sleep_ms(10000) # yield for network processes
+
+            #print('setting antenna')
             sta_if.config(antenna=antenna)  # select antenna, 0=chip, 1=external
+            #utime.sleep_ms(1000) # yield for network processes
+
+            #print('connecting')
             sta_if.connect(ssid, password)
+            utime.sleep_ms(100) # yield for network processes
+
+            #print('checking if is connected')
             while not sta_if.isconnected():
+
+                utime.sleep_ms(100) # yield for network processes
+
                 # Check the status
+                # print('getting status')
                 status = sta_if.status()
                 # Constants aren't implemented for PYBD as of MicroPython v1.13.
                 # From: https://github.com/micropython/micropython/issues/4682
@@ -74,6 +92,8 @@ class OTAUpdater:
                 #        or (status == network.WLAN.STAT_NO_AP_FOUND) or (status == network.WLAN.STAT_CONNECT_FAIL)):
                     # Problems so return
                 #    return False
+                #print('checking if is connected')
+
 
         print('network config:', sta_if.ifconfig())
         return True
@@ -120,7 +140,7 @@ class OTAUpdater:
                 if self.path_exists(self.get_module_and_path(self._main_dir)):
                     self.rmtree(self.get_module_and_path(self._main_dir))  # Remove the 'main' directory and contents.
                 os.rename(self.get_module_and_path('next'), self.get_module_and_path(self._main_dir))  # Move the 'next' to 'main'
-                print('Update applied (', pending_update_version, '), ready to rock and roll')
+                print('Update applied (', pending_update_version, ').')
             else:
                 print('Corrupt pending update found, discarding...')
                 self.rmtree(self.get_module_and_path('next'))
@@ -156,7 +176,7 @@ class OTAUpdater:
     def get_latest_version(self):
         """Get the latest release version information from the github repo url.
         Returns the version or None if no releases exist."""
-        latest_release = self._http_client.get(self._github_repo + '/releases/latest')
+        latest_release = self._http_client.get(self._github_repo + '/releases/latest', headers=self.get_headers())
         if not 'tag_name' in latest_release.json():
             return None
         version = latest_release.json()['tag_name']
@@ -165,7 +185,7 @@ class OTAUpdater:
 
     def download_all_files(self, root_url, version):
         """Download all files and directories from the version at the repo url below the 'main' directory."""
-        file_list = self._http_client.get(root_url + '?ref=refs/tags/' + version)
+        file_list = self._http_client.get(root_url + '?ref=refs/tags/' + version, headers=self.get_headers())
         for file in file_list.json():
             if file['type'] == 'file':
                 download_url = file['download_url']
@@ -183,7 +203,7 @@ class OTAUpdater:
         print('\tDownloading: ', path)
         with open(path, 'w') as outfile:
             try:
-                response = self._http_client.get(url)
+                response = self._http_client.get(url, headers=self.get_headers())
                 outfile.write(response.text)
             finally:
                 response.close()
@@ -201,6 +221,14 @@ class OTAUpdater:
         except OSError:
             return False
         return True
+
+    def get_headers(self):
+        """Generate the extra headers."""
+        headers={}
+        if self._github_pat:
+            headers = { b'Authorization': b'token {}'.format(self._github_pat) }
+
+        return headers
 
 class Response:
     """HTTP Response."""
