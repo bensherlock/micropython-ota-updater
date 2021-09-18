@@ -65,8 +65,13 @@ class OTAUpdater:
             sta_if.active(True)
             #utime.sleep_ms(10000) # yield for network processes
 
-            #print('setting antenna')
-            sta_if.config(antenna=antenna)  # select antenna, 0=chip, 1=external
+            # on esp32 micropython sta_if.config(antenna.antenna) always causes an exception as antenna is not included
+            try:
+                #print('setting antenna')
+                sta_if.config(antenna=antenna)  # select antenna, 0=chip, 1=external
+            except:
+                pass
+
             #utime.sleep_ms(1000) # yield for network processes
 
             #print('connecting')
